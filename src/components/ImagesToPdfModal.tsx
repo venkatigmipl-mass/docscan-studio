@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { DocPage, PdfPageSize, ScannedDocument } from '../types/scanner';
 import { compressImage } from '../services/imageProcessing';
-import { generatePdfBlob, downloadBlob } from '../services/pdfExport';
+import { generatePdfBlob, shareOrDownloadPdfBlob } from '../services/pdfExport';
 import {
   Upload,
   ArrowUp,
@@ -119,23 +119,11 @@ export const ImagesToPdfModal: React.FC<ImagesToPdfModalProps> = ({
       }));
 
       const blob = await generatePdfBlob(pages, { pageSize, marginMm: 8 });
-      const filename = `${docTitle.trim() || 'Document'}.pdf`;
+      const filename = `${(docTitle.trim() || 'Document').replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`;
+      const title = `Generated PDF: ${docTitle} (${images.length} pages)`;
 
-      if (action === 'share' && navigator.canShare) {
-        const file = new File([blob], filename, { type: 'application/pdf' });
-        if (navigator.canShare({ files: [file] })) {
-          await navigator.share({
-            title: docTitle,
-            text: `Generated PDF (${images.length} pages)`,
-            files: [file],
-          });
-          toast.success('Shared PDF successfully');
-          return;
-        }
-      }
-
-      downloadBlob(blob, filename);
-      toast.success('PDF downloaded successfully');
+      await shareOrDownloadPdfBlob(blob, filename, title, action);
+      toast.success(action === 'share' ? 'PDF ready to share' : 'PDF generated successfully');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Error creating PDF';
       toast.error(msg);
@@ -189,7 +177,7 @@ export const ImagesToPdfModal: React.FC<ImagesToPdfModalProps> = ({
   return (
     <div className="flex flex-col min-h-screen bg-slate-50 dark:bg-slate-950 pb-32 max-w-md mx-auto">
       {/* Header */}
-      <header className="sticky top-0 z-30 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800">
+      <header className="sticky top-0 z-30 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 pt-safe">
         <div className="flex items-center justify-between h-14 px-4">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white">

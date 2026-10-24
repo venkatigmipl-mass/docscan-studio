@@ -139,7 +139,7 @@ export const FilterEditor: React.FC<FilterEditorProps> = ({
   return (
     <div className="fixed inset-0 z-50 bg-slate-950 flex flex-col justify-between max-w-md mx-auto select-none">
       {/* Top Header */}
-      <div className="flex items-center justify-between p-4 bg-slate-900/90 border-b border-slate-800 text-white z-20">
+      <div className="flex items-center justify-between p-4 pt-safe bg-slate-900/90 border-b border-slate-800 text-white z-20">
         <button
           type="button"
           onClick={onCancel}

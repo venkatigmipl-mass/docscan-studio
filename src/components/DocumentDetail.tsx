@@ -141,7 +141,7 @@ export const DocumentDetail: React.FC<DocumentDetailProps> = ({
   return (
     <div className="flex flex-col min-h-screen bg-slate-50 dark:bg-slate-950 pb-36 max-w-md mx-auto">
       {/* Top Header */}
-      <header className="sticky top-0 z-30 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800">
+      <header className="sticky top-0 z-30 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 pt-safe">
         <div className="flex items-center justify-between h-14 px-3">
           <button
             type="button"

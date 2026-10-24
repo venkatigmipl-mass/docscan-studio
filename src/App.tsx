@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { App as CapApp } from '@capacitor/app';
 import {
   ActiveScreen,
   AppSettings,
@@ -53,13 +54,106 @@ const AppContent: React.FC = () => {
   // Export Modal state
   const [exportDoc, setExportDoc] = useState<ScannedDocument | null>(null);
 
+  // Loading indicator for background operations
+  const [isAppLoading, setIsAppLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState('');
+
   // Hidden multi-file input for home screen import
   const homeFileInputRef = useRef<HTMLInputElement>(null);
 
-  // Load Settings and Documents on Mount
+  // Current active document
+  const activeDocument = documents.find((d) => d.id === activeDocId) || null;
+
+  // Refs for Android hardware Back Button listener
+  const exportDocRef = useRef(exportDoc);
+  exportDocRef.current = exportDoc;
+
+  const isSettingsOpenRef = useRef(isSettingsOpen);
+  isSettingsOpenRef.current = isSettingsOpen;
+
+  const activeScreenRef = useRef(activeScreen);
+  activeScreenRef.current = activeScreen;
+
+  const pipelineTargetDocIdRef = useRef(pipelineTargetDocId);
+  pipelineTargetDocIdRef.current = pipelineTargetDocId;
+
+  // Android Back Button Handler via @capacitor/app
+  useEffect(() => {
+    let removeListener: (() => void) | null = null;
+
+    const setupBackButton = async () => {
+      try {
+        const handler = await CapApp.addListener('backButton', () => {
+          // Priority 1: Close open modals first
+          if (exportDocRef.current) {
+            setExportDoc(null);
+            return;
+          }
+          if (isSettingsOpenRef.current) {
+            setIsSettingsOpen(false);
+            return;
+          }
+
+          // Priority 2: Navigate back one screen
+          const current = activeScreenRef.current;
+          if (current === 'filter') {
+            setActiveScreen('crop');
+            return;
+          }
+          if (current === 'crop') {
+            if (pipelineTargetDocIdRef.current) {
+              setActiveScreen('document-detail');
+            } else {
+              setActiveScreen('camera');
+            }
+            return;
+          }
+          if (current === 'camera') {
+            if (pipelineTargetDocIdRef.current) {
+              setActiveScreen('document-detail');
+            } else {
+              setActiveScreen('home');
+            }
+            return;
+          }
+          if (current === 'document-detail') {
+            setActiveDocId(null);
+            setActiveScreen('home');
+            return;
+          }
+          if (current === 'images-to-pdf' || current === 'qr-tools') {
+            setActiveScreen('home');
+            return;
+          }
+
+          // Priority 3: On Docs home screen with no modals -> Exit app
+          if (current === 'home') {
+            CapApp.exitApp();
+          }
+        });
+
+        removeListener = () => {
+          handler.remove();
+        };
+      } catch {
+        // Safe fallback in standard browser preview
+      }
+    };
+
+    setupBackButton();
+
+    return () => {
+      if (removeListener) removeListener();
+    };
+  }, []);
+
+  // Load Settings and Documents on Mount using idb
   useEffect(() => {
     const initApp = async () => {
       try {
+        setIsAppLoading(true);
+        setLoadingMessage('Loading saved documents...');
+
         const loadedSettings = await dbService.getSettings();
         setSettings(loadedSettings);
         applyThemeClass(loadedSettings.theme);
@@ -69,6 +163,8 @@ const AppContent: React.FC = () => {
       } catch (err: unknown) {
         console.warn('Initialization error:', err);
         toast.error('Failed loading saved documents from storage.');
+      } finally {
+        setIsAppLoading(false);
       }
     };
     initApp();
@@ -86,21 +182,26 @@ const AppContent: React.FC = () => {
   const handleToggleTheme = async () => {
     const nextTheme = settings.theme === 'dark' ? 'light' : 'dark';
     applyThemeClass(nextTheme);
-    const updated = await dbService.saveSettings({ theme: nextTheme });
-    setSettings(updated);
+    try {
+      const updated = await dbService.saveSettings({ theme: nextTheme });
+      setSettings(updated);
+    } catch {
+      toast.error('Failed saving theme preference');
+    }
   };
 
   const handleUpdateSettings = async (partial: Partial<AppSettings>) => {
-    if (partial.theme) {
-      applyThemeClass(partial.theme);
+    try {
+      if (partial.theme) {
+        applyThemeClass(partial.theme);
+      }
+      const updated = await dbService.saveSettings(partial);
+      setSettings(updated);
+      toast.success('Settings saved');
+    } catch {
+      toast.error('Failed saving settings');
     }
-    const updated = await dbService.saveSettings(partial);
-    setSettings(updated);
-    toast.success('Settings saved');
   };
-
-  // Current active document
-  const activeDocument = documents.find((d) => d.id === activeDocId) || null;
 
   // Generate default name "Scan_YYYY-MM-DD_HHmm"
   const generateDefaultDocName = () => {
@@ -138,6 +239,8 @@ const AppContent: React.FC = () => {
   ) => {
     if (images.length === 0) return;
 
+    setIsAppLoading(true);
+    setLoadingMessage('Importing photos...');
     try {
       const newPages: DocPage[] = images.map((img) => ({
         id: Math.random().toString(36).substring(2, 9),
@@ -162,8 +265,9 @@ const AppContent: React.FC = () => {
             pageCount: updatedPages.length,
             updatedAt: Date.now(),
           };
+
           await dbService.saveDocument(updatedDoc);
-          setDocuments((prev) => prev.map((d) => (d.id === updatedDoc.id ? updatedDoc : d)));
+          setDocuments((prev) => [updatedDoc, ...prev.filter((d) => d.id !== updatedDoc.id)]);
           setActiveDocId(updatedDoc.id);
           setActiveScreen('document-detail');
           toast.success(`Added ${newPages.length} pages to ${updatedDoc.name}`);
@@ -178,7 +282,7 @@ const AppContent: React.FC = () => {
         createdAt: Date.now(),
         updatedAt: Date.now(),
         pageCount: newPages.length,
-        thumbnail: newPages[0].processedDataUrl,
+        thumbnail: '',
         pages: newPages,
       };
 
@@ -191,6 +295,8 @@ const AppContent: React.FC = () => {
       const msg = err instanceof Error ? err.message : 'Error importing pages';
       toast.error(msg);
       setActiveScreen('home');
+    } finally {
+      setIsAppLoading(false);
     }
   };
 
@@ -224,7 +330,7 @@ const AppContent: React.FC = () => {
     setActiveScreen('filter');
   };
 
-  // Filter step completed -> Save Page into Document
+  // Filter step completed -> Save Page into Document in IndexedDB
   const handleSavePage = async (
     processedDataUrl: string,
     filter: FilterType,
@@ -234,6 +340,8 @@ const AppContent: React.FC = () => {
     width: number,
     height: number
   ) => {
+    setIsAppLoading(true);
+    setLoadingMessage('Saving page...');
     try {
       const pageData: DocPage = {
         id: Math.random().toString(36).substring(2, 9),
@@ -254,13 +362,11 @@ const AppContent: React.FC = () => {
         if (target) {
           let updatedPages = [...target.pages];
           if (pipelineEditingPageIndex !== null && pipelineEditingPageIndex >= 0) {
-            // Replace existing page
             updatedPages[pipelineEditingPageIndex] = {
               ...pageData,
               id: target.pages[pipelineEditingPageIndex].id,
             };
           } else {
-            // Append as new page
             updatedPages.push(pageData);
           }
 
@@ -268,12 +374,12 @@ const AppContent: React.FC = () => {
             ...target,
             pages: updatedPages,
             pageCount: updatedPages.length,
-            thumbnail: updatedPages[0]?.processedDataUrl || '',
+            thumbnail: target.thumbnail || '',
             updatedAt: Date.now(),
           };
 
           await dbService.saveDocument(updatedDoc);
-          setDocuments((prev) => prev.map((d) => (d.id === updatedDoc.id ? updatedDoc : d)));
+          setDocuments((prev) => [updatedDoc, ...prev.filter((d) => d.id !== updatedDoc.id)]);
           setActiveDocId(updatedDoc.id);
           setActiveScreen('document-detail');
           toast.success(pipelineEditingPageIndex !== null ? 'Page updated' : 'Page added to document');
@@ -281,14 +387,14 @@ const AppContent: React.FC = () => {
         }
       }
 
-      // Creating a new document with this initial page
+      // Creating a brand new document with this initial page
       const newDoc: ScannedDocument = {
         id: Math.random().toString(36).substring(2, 9),
         name: generateDefaultDocName(),
         createdAt: Date.now(),
         updatedAt: Date.now(),
         pageCount: 1,
-        thumbnail: processedDataUrl,
+        thumbnail: '',
         pages: [pageData],
       };
 
@@ -296,11 +402,13 @@ const AppContent: React.FC = () => {
       setDocuments((prev) => [newDoc, ...prev]);
       setActiveDocId(newDoc.id);
       setActiveScreen('document-detail');
-      toast.success('Document created & saved');
+      toast.success('Document saved to device');
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Error saving page';
+      const msg = err instanceof Error ? err.message : 'Error saving page to storage';
       toast.error(msg);
       setActiveScreen('home');
+    } finally {
+      setIsAppLoading(false);
     }
   };
 
@@ -335,41 +443,64 @@ const AppContent: React.FC = () => {
   };
 
   const handleUpdateDocument = async (updated: ScannedDocument) => {
-    await dbService.saveDocument(updated);
-    setDocuments((prev) => prev.map((d) => (d.id === updated.id ? updated : d)));
+    try {
+      await dbService.saveDocument(updated);
+      setDocuments((prev) => [updated, ...prev.filter((d) => d.id !== updated.id)]);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to update document in storage';
+      toast.error(msg);
+    }
   };
 
   const handleDeleteDocument = async (id: string) => {
-    await dbService.deleteDocument(id);
-    setDocuments((prev) => prev.filter((d) => d.id !== id));
-    if (activeDocId === id) {
-      setActiveDocId(null);
-      setActiveScreen('home');
+    try {
+      await dbService.deleteDocument(id);
+      setDocuments((prev) => prev.filter((d) => d.id !== id));
+      if (activeDocId === id) {
+        setActiveDocId(null);
+        setActiveScreen('home');
+      }
+      toast.success('Document deleted');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to delete document';
+      toast.error(msg);
     }
-    toast.success('Document deleted');
   };
 
   const handleRenameDocument = async (id: string, newName: string) => {
-    const doc = documents.find((d) => d.id === id);
-    if (!doc) return;
-    const updated = { ...doc, name: newName, updatedAt: Date.now() };
-    await dbService.saveDocument(updated);
-    setDocuments((prev) => prev.map((d) => (d.id === id ? updated : d)));
-    toast.success('Document renamed');
+    try {
+      const doc = documents.find((d) => d.id === id);
+      if (!doc) return;
+      const updated = { ...doc, name: newName, updatedAt: Date.now() };
+      await dbService.saveDocument(updated);
+      setDocuments((prev) => prev.map((d) => (d.id === id ? updated : d)));
+      toast.success('Document renamed');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to rename document';
+      toast.error(msg);
+    }
   };
 
   const handleClearAllData = async () => {
-    await dbService.clearAllData();
-    setDocuments([]);
-    setActiveDocId(null);
-    setActiveScreen('home');
+    try {
+      await dbService.clearAllData();
+      setDocuments([]);
+      setActiveDocId(null);
+      setActiveScreen('home');
+      toast.success('All documents erased');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to clear stored data';
+      toast.error(msg);
+    }
   };
 
-  // Direct gallery file select from Home or Detail
+  // Direct gallery file select from Home
   const handleHomeGalleryInput = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
+    setIsAppLoading(true);
+    setLoadingMessage('Processing images...');
     try {
       const processed: Array<{ dataUrl: string; width: number; height: number }> = [];
       for (let i = 0; i < files.length; i++) {
@@ -380,12 +511,13 @@ const AppContent: React.FC = () => {
       if (processed.length === 1) {
         handleCameraCapture(processed[0].dataUrl, processed[0].width, processed[0].height);
       } else {
-        handleImportMultiple(processed);
+        await handleImportMultiple(processed);
       }
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Error reading image';
+      const msg = err instanceof Error ? err.message : 'Error reading image file';
       toast.error(msg);
     } finally {
+      setIsAppLoading(false);
       if (homeFileInputRef.current) homeFileInputRef.current.value = '';
     }
   };
@@ -405,8 +537,8 @@ const AppContent: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors">
-      {/* Hidden file input for direct photo pick */}
+    <div className="min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors overscroll-none select-none">
+      {/* Hidden file input for direct photo pick from Home */}
       <input
         ref={homeFileInputRef}
         type="file"
@@ -416,17 +548,32 @@ const AppContent: React.FC = () => {
         className="hidden"
       />
 
-      {/* Primary Top Bar (hidden during full-screen camera/crop/filter and doc detail which has its own header) */}
-      {activeScreen !== 'camera' && activeScreen !== 'crop' && activeScreen !== 'filter' && activeScreen !== 'document-detail' && (
-        <Header
-          settings={settings}
-          onToggleTheme={handleToggleTheme}
-          onOpenSettings={() => setIsSettingsOpen(true)}
-          title={getHeaderTitle()}
-          showBack={activeScreen !== 'home'}
-          onBack={() => setActiveScreen('home')}
-        />
+      {/* Global Loading Overlay */}
+      {isAppLoading && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-5 shadow-2xl border border-slate-200 dark:border-slate-800 flex items-center gap-3">
+            <div className="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+            <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+              {loadingMessage || 'Processing...'}
+            </span>
+          </div>
+        </div>
       )}
+
+      {/* Primary Top Bar */}
+      {activeScreen !== 'camera' &&
+        activeScreen !== 'crop' &&
+        activeScreen !== 'filter' &&
+        activeScreen !== 'document-detail' && (
+          <Header
+            settings={settings}
+            onToggleTheme={handleToggleTheme}
+            onOpenSettings={() => setIsSettingsOpen(true)}
+            title={getHeaderTitle()}
+            showBack={activeScreen !== 'home'}
+            onBack={() => setActiveScreen('home')}
+          />
+        )}
 
       {/* Screen Routing */}
       {activeScreen === 'home' && (

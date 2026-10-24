@@ -1,4 +1,7 @@
 import { jsPDF } from 'jspdf';
+import { Capacitor } from '@capacitor/core';
+import { Filesystem, Directory } from '@capacitor/filesystem';
+import { Share } from '@capacitor/share';
 import { DocPage, PdfPageSize, ScannedDocument } from '../types/scanner';
 
 // Page dimensions in mm: [width, height] in portrait
@@ -15,7 +18,27 @@ export interface ExportPdfOptions {
 }
 
 /**
- * Generates a jsPDF instance from a list of pages
+ * Converts a Blob to a raw base64 string (without the data: prefix)
+ */
+export function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const result = reader.result as string;
+      const commaIdx = result.indexOf(',');
+      if (commaIdx >= 0) {
+        resolve(result.substring(commaIdx + 1));
+      } else {
+        resolve(result);
+      }
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
+ * Generates a jsPDF Blob from a list of DocPages
  */
 export async function generatePdfBlob(
   pages: DocPage[],
@@ -53,11 +76,9 @@ export async function generatePdfBlob(
     let drawH: number;
 
     if (imgAspect > boxAspect) {
-      // Fit to width
       drawW = printableW;
       drawH = printableW / imgAspect;
     } else {
-      // Fit to height
       drawH = printableH;
       drawW = printableH * imgAspect;
     }
@@ -73,7 +94,7 @@ export async function generatePdfBlob(
 }
 
 /**
- * Downloads a Blob as a file with the specified filename
+ * Downloads a Blob as a file with the specified filename for web browsers
  */
 export function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
@@ -87,6 +108,57 @@ export function downloadBlob(blob: Blob, filename: string): void {
 }
 
 /**
+ * Shares or downloads a PDF blob safely on both Capacitor Native WebView and Web browsers
+ */
+export async function shareOrDownloadPdfBlob(
+  blob: Blob,
+  filename: string,
+  title: string,
+  action: 'share' | 'download' = 'download'
+): Promise<void> {
+  const isNative = Capacitor.isNativePlatform();
+
+  if (isNative) {
+    // Android/iOS Capacitor Native WebView flow
+    const base64Data = await blobToBase64(blob);
+    const writeResult = await Filesystem.writeFile({
+      path: filename,
+      data: base64Data,
+      directory: Directory.Cache,
+    });
+
+    await Share.share({
+      title,
+      text: title,
+      url: writeResult.uri,
+      dialogTitle: 'Share PDF',
+    });
+    return;
+  }
+
+  // Web browser flow
+  if (action === 'share' && typeof navigator !== 'undefined' && navigator.canShare) {
+    const file = new File([blob], filename, { type: 'application/pdf' });
+    if (navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({
+          title,
+          text: title,
+          files: [file],
+        });
+        return;
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name === 'AbortError') return;
+        console.warn('Web Share API error:', err);
+      }
+    }
+  }
+
+  // Fallback to direct web download link
+  downloadBlob(blob, filename);
+}
+
+/**
  * Shares or downloads a PDF document
  */
 export async function exportDocumentPdf(
@@ -97,36 +169,46 @@ export async function exportDocumentPdf(
   const blob = await generatePdfBlob(doc.pages, options);
   const sanitizedName = (doc.name || 'Scan').replace(/[^a-zA-Z0-9_-]/g, '_');
   const filename = `${sanitizedName}.pdf`;
+  const title = `Scanned document: ${doc.name} (${doc.pages.length} pages)`;
 
-  if (action === 'share') {
-    const file = new File([blob], filename, { type: 'application/pdf' });
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      try {
-        await navigator.share({
-          title: doc.name,
-          text: `Scanned document: ${doc.name} (${doc.pages.length} pages)`,
-          files: [file],
-        });
-        return;
-      } catch (err: unknown) {
-        // User aborted share or share failed
-        if (err instanceof Error && err.name === 'AbortError') return;
-        console.warn('Share failed, falling back to download:', err);
-      }
-    }
-  }
-
-  // Fallback to direct download
-  downloadBlob(blob, filename);
+  await shareOrDownloadPdfBlob(blob, filename, title, action);
 }
 
 /**
- * Exports a single page as a JPEG file
+ * Exports a single page as a JPEG file safely on both Capacitor Native and Web
  */
-export async function downloadPageAsJpeg(page: DocPage, docName: string, pageNumber: number): Promise<void> {
-  const dataUrl = page.processedDataUrl || page.originalDataUrl;
-  const res = await fetch(dataUrl);
-  const blob = await res.blob();
+export async function downloadPageAsJpeg(
+  page: DocPage,
+  docName: string,
+  pageNumber: number
+): Promise<void> {
   const sanitizedName = (docName || 'Scan').replace(/[^a-zA-Z0-9_-]/g, '_');
-  downloadBlob(blob, `${sanitizedName}_page_${pageNumber}.jpg`);
+  const filename = `${sanitizedName}_page_${pageNumber}.jpg`;
+
+  let blob = page.processedBlob;
+  if (!blob) {
+    const dataUrl = page.processedDataUrl || page.originalDataUrl;
+    const res = await fetch(dataUrl);
+    blob = await res.blob();
+  }
+
+  const isNative = Capacitor.isNativePlatform();
+
+  if (isNative) {
+    const base64Data = await blobToBase64(blob);
+    const writeResult = await Filesystem.writeFile({
+      path: filename,
+      data: base64Data,
+      directory: Directory.Cache,
+    });
+
+    await Share.share({
+      title: filename,
+      url: writeResult.uri,
+      dialogTitle: 'Share Image',
+    });
+    return;
+  }
+
+  downloadBlob(blob, filename);
 }

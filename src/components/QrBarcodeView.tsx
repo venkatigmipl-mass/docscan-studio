@@ -205,7 +205,7 @@ export const QrBarcodeView: React.FC = () => {
   return (
     <div className="flex flex-col min-h-screen bg-slate-50 dark:bg-slate-950 pb-36 max-w-md mx-auto">
       {/* Tab bar header */}
-      <div className="p-4 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800">
+      <div className="p-4 pt-safe bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800">
         <div className="flex rounded-2xl bg-slate-100 dark:bg-slate-800 p-1">
           <button
             type="button"

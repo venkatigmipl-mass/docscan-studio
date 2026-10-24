@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Zap, ZapOff, Image as ImageIcon, X, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Zap, ZapOff, Image as ImageIcon, X, AlertTriangle, RefreshCw, Camera as CameraIcon } from 'lucide-react';
 import { compressImage } from '../services/imageProcessing';
 import { useToast } from './Toast';
 
@@ -18,6 +18,7 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const systemCameraInputRef = useRef<HTMLInputElement>(null);
 
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -39,7 +40,7 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({
 
     try {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error('Camera access is not supported by this browser.');
+        throw new Error('Camera access is not supported by this browser/WebView.');
       }
 
       // Prefer rear environment camera with high resolution
@@ -75,12 +76,12 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({
     } catch (err: unknown) {
       console.warn('Camera error:', err);
       setHasPermission(false);
-      let msg = 'Could not access camera. Please allow camera permissions.';
+      let msg = 'Camera permission denied or camera not accessible in this WebView.';
       if (err instanceof Error) {
         if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-          msg = 'Camera permission was denied. You can still scan by picking photos from your gallery.';
+          msg = 'Camera permission was denied. Tap "Take Photo" to use your device camera or pick from gallery.';
         } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-          msg = 'No camera found on this device. You can pick photos from your gallery instead.';
+          msg = 'No camera found on this device. Use "Take Photo" or pick photos from gallery.';
         } else {
           msg = err.message || msg;
         }
@@ -107,7 +108,6 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({
     try {
       const track = streamRef.current.getVideoTracks()[0];
       const nextTorch = !torchOn;
-      // applyConstraints expects torch boolean
       await (track as MediaStreamTrack & { applyConstraints: (c: Record<string, unknown>) => Promise<void> }).applyConstraints({
         advanced: [{ torch: nextTorch }],
       });
@@ -151,8 +151,26 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({
     }
   };
 
+  // Handle single system capture from <input capture="environment">
+  const handleSystemCameraCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsProcessing(true);
+    try {
+      const compressed = await compressImage(file, 1600);
+      onCaptureImage(compressed.dataUrl, compressed.width, compressed.height);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Error capturing image';
+      toast.error(msg);
+      setIsProcessing(false);
+    } finally {
+      if (systemCameraInputRef.current) systemCameraInputRef.current.value = '';
+    }
+  };
+
   // Handle multi-select from gallery
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleGalleryChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
@@ -175,13 +193,15 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({
       const msg = err instanceof Error ? err.message : 'Error processing gallery image';
       toast.error(msg);
       setIsProcessing(false);
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
   return (
     <div className="fixed inset-0 z-50 bg-black flex flex-col justify-between max-w-md mx-auto overflow-hidden">
       {/* Top Camera Controls */}
-      <div className="flex items-center justify-between p-4 z-20 bg-gradient-to-b from-black/80 to-transparent">
+      <div className="flex items-center justify-between p-4 pt-safe z-20 bg-gradient-to-b from-black/80 to-transparent">
         <button
           type="button"
           onClick={onCancel}
@@ -222,13 +242,21 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({
             </div>
             <h3 className="text-base font-semibold mb-2">Camera Unavailable</h3>
             <p className="text-xs text-slate-300 leading-relaxed mb-6">
-              {errorMessage || 'Camera access was blocked or not detected.'}
+              {errorMessage || 'Camera access was blocked or not detected in this WebView.'}
             </p>
             <div className="flex flex-col gap-2.5">
               <button
                 type="button"
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => systemCameraInputRef.current?.click()}
                 className="min-h-[48px] px-5 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs rounded-2xl flex items-center justify-center gap-2 active:scale-95 shadow-md shadow-indigo-600/30"
+              >
+                <CameraIcon className="w-4 h-4" />
+                Take Photo
+              </button>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="min-h-[44px] px-5 bg-white/10 hover:bg-white/20 text-white font-semibold text-xs rounded-2xl flex items-center justify-center gap-2 active:scale-95"
               >
                 <ImageIcon className="w-4 h-4" />
                 Pick from Gallery
@@ -236,10 +264,10 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({
               <button
                 type="button"
                 onClick={startCamera}
-                className="min-h-[44px] px-4 bg-white/10 hover:bg-white/20 text-white font-medium text-xs rounded-2xl flex items-center justify-center gap-2 active:scale-95"
+                className="min-h-[44px] px-4 text-slate-400 hover:text-white font-medium text-xs flex items-center justify-center gap-2 active:scale-95"
               >
-                <RefreshCw className="w-4 h-4" />
-                Retry Camera
+                <RefreshCw className="w-3.5 h-3.5" />
+                Retry Live Camera
               </button>
             </div>
           </div>
@@ -278,13 +306,23 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({
         )}
       </div>
 
-      {/* Hidden File Input for Gallery Fallback / Multi-Select */}
+      {/* Hidden File Input for Fallback System Camera (<input capture="environment">) */}
+      <input
+        ref={systemCameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={handleSystemCameraCapture}
+        className="hidden"
+      />
+
+      {/* Hidden File Input for Gallery Multi-Select */}
       <input
         ref={fileInputRef}
         type="file"
         accept="image/*"
         multiple
-        onChange={handleFileChange}
+        onChange={handleGalleryChange}
         className="hidden"
       />
 
@@ -317,8 +355,18 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({
           </div>
         </button>
 
-        {/* Placeholder to balance layout */}
-        <div className="w-12 h-12" />
+        {/* Fallback System Camera Button "Take Photo" */}
+        <button
+          type="button"
+          onClick={() => systemCameraInputRef.current?.click()}
+          disabled={isProcessing}
+          className="min-h-[48px] min-w-[48px] p-2.5 rounded-2xl bg-white/15 hover:bg-white/25 text-white flex flex-col items-center justify-center active:scale-95 transition-transform"
+          aria-label="Take Photo"
+          title="Take Photo with System Camera"
+        >
+          <CameraIcon className="w-5 h-5 text-indigo-300" />
+          <span className="text-[9px] mt-1 font-medium">Photo</span>
+        </button>
       </div>
     </div>
   );

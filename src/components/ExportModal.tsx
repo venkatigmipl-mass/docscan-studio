@@ -171,7 +171,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
 
         {/* Action Buttons */}
         <div className="flex flex-col gap-2.5">
-          {/* Share PDF button (Web Share API) */}
+          {/* Share PDF button */}
           <button
             type="button"
             onClick={handleSharePdf}
@@ -183,7 +183,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
             ) : (
               <Share2 className="w-4 h-4" />
             )}
-            <span>Share PDF via App</span>
+            <span>Share PDF</span>
           </button>
 
           {/* Download PDF button */}
@@ -194,7 +194,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
             className="w-full min-h-[44px] bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-semibold text-xs rounded-2xl flex items-center justify-center gap-2 active:scale-95 transition-transform disabled:opacity-50"
           >
             <Download className="w-4 h-4 text-slate-500" />
-            <span>Download PDF File</span>
+            <span>Download / Save to Device</span>
           </button>
 
           {/* Download JPEG button */}
@@ -205,7 +205,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
             className="w-full min-h-[44px] bg-transparent text-slate-600 dark:text-slate-400 hover:text-indigo-600 font-medium text-xs flex items-center justify-center gap-2 py-1"
           >
             <ImageIcon className="w-3.5 h-3.5" />
-            <span>Download as JPEG {doc.pages.length > 1 ? `(${doc.pages.length} images)` : ''}</span>
+            <span>Export as JPEG {doc.pages.length > 1 ? `(${doc.pages.length} images)` : ''}</span>
           </button>
         </div>
       </div>

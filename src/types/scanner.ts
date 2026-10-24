@@ -16,7 +16,9 @@ export interface CornerPoints {
 
 export interface DocPage {
   id: string;
-  originalDataUrl: string; // compressed original capture
+  originalBlob?: Blob;
+  processedBlob?: Blob;
+  originalDataUrl: string; // compressed original capture / blob URL
   processedDataUrl: string; // after crop + filter + brightness + contrast + rotation
   width: number;
   height: number;

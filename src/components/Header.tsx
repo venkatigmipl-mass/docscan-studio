@@ -20,7 +20,7 @@ export const Header: React.FC<HeaderProps> = ({
   onBack,
 }) => {
   return (
-    <header className="sticky top-0 z-30 w-full bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800/80 transition-colors">
+    <header className="sticky top-0 z-30 w-full bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800/80 transition-colors pt-safe">
       <div className="flex items-center justify-between h-14 px-4 max-w-md mx-auto">
         {/* Left Slot: Back or Logo */}
         <div className="flex items-center gap-2 overflow-hidden">
