@@ -1,0 +1,20 @@
+{
+  "id": "/",
+  "name": "FRUIT MANIA ULTRA",
+  "short_name": "Fruit Mania",
+  "description": "Premium 5x3 Fruit Slot-Style Arcade Game with 9 Paylines, 3D Symbols, Scatter Gem Bonus Round, and Virtual Points.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#080114",
+  "theme_color": "#080114",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "name": "DocScan Studio - Mobile Document Scanner & PDF Creator",
+  "description": "Mobile-first offline document scanner and PDF creator. Capture receipts, notes, and documents with auto-crop perspective correction, filters, multi-page scanning, QR tools, and PDF export.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": []
+}
