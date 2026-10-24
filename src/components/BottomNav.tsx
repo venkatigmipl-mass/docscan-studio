@@ -1,81 +1,65 @@
 import React from 'react';
-import { Files, Camera, Images, QrCode } from 'lucide-react';
-import { ActiveScreen } from '../types/scanner';
+import { Home, Radio, MessageSquare, User as UserIcon } from 'lucide-react';
+import { MainTab, AppLanguage } from '../types/chatnest';
+import { getT } from '../services/i18n';
 
 interface BottomNavProps {
-  activeScreen: ActiveScreen;
-  onNavigate: (screen: ActiveScreen) => void;
+  currentTab: MainTab;
+  onSelectTab: (tab: MainTab) => void;
+  unreadChatCount?: number;
+  language: AppLanguage;
 }
 
-export const BottomNav: React.FC<BottomNavProps> = ({ activeScreen, onNavigate }) => {
-  // Hide bottom nav during active editing workflows and detail view
-  const isEditingFlow =
-    activeScreen === 'crop' ||
-    activeScreen === 'filter' ||
-    activeScreen === 'camera' ||
-    activeScreen === 'document-detail';
-  if (isEditingFlow) return null;
+export const BottomNav: React.FC<BottomNavProps> = ({
+  currentTab,
+  onSelectTab,
+  unreadChatCount = 0,
+  language
+}) => {
+  const t = getT(language);
 
-  const tabs = [
-    {
-      id: 'home' as ActiveScreen,
-      label: 'Docs',
-      icon: Files,
-    },
-    {
-      id: 'camera' as ActiveScreen,
-      label: 'Scan',
-      icon: Camera,
-      highlight: true,
-    },
-    {
-      id: 'images-to-pdf' as ActiveScreen,
-      label: 'Img to PDF',
-      icon: Images,
-    },
-    {
-      id: 'qr-tools' as ActiveScreen,
-      label: 'QR & Barcode',
-      icon: QrCode,
-    },
+  const tabs: { id: MainTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+    { id: 'home', label: t('home'), icon: Home },
+    { id: 'rooms', label: t('rooms'), icon: Radio },
+    { id: 'chats', label: t('chats'), icon: MessageSquare },
+    { id: 'profile', label: t('profile'), icon: UserIcon }
   ];
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-lg border-t border-slate-200/80 dark:border-slate-800/80 pb-safe">
-      <div className="max-w-md mx-auto grid grid-cols-4 items-center h-16 px-2">
+    <nav 
+      aria-label="Bottom Navigation" 
+      className="fixed bottom-0 left-0 right-0 z-40 bg-slate-900/90 dark:bg-slate-950/90 backdrop-blur-md border-t border-slate-800/80 pb-safe shadow-2xl"
+    >
+      <div className="max-w-md mx-auto px-4 h-16 flex items-center justify-around">
         {tabs.map((tab) => {
+          const isActive = currentTab === tab.id;
           const Icon = tab.icon;
-          const isActive = activeScreen === tab.id;
-
-          if (tab.highlight) {
-            return (
-              <div key={tab.id} className="flex items-center justify-center -mt-5">
-                <button
-                  type="button"
-                  onClick={() => onNavigate(tab.id)}
-                  aria-label={tab.label}
-                  className="w-13 h-13 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white flex flex-col items-center justify-center shadow-lg shadow-indigo-600/30 active:scale-95 transition-transform"
-                >
-                  <Icon className="w-6 h-6" />
-                  <span className="text-[9px] font-semibold tracking-tight mt-0.5">{tab.label}</span>
-                </button>
-              </div>
-            );
-          }
 
           return (
             <button
               key={tab.id}
-              type="button"
-              onClick={() => onNavigate(tab.id)}
-              className={`min-h-[44px] min-w-[44px] flex flex-col items-center justify-center transition-colors ${
-                isActive
-                  ? 'text-indigo-600 dark:text-indigo-400 font-semibold'
-                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+              onClick={() => onSelectTab(tab.id)}
+              className={`relative flex flex-col items-center justify-center min-w-[64px] min-h-[48px] rounded-2xl transition-all duration-200 active:scale-95 ${
+                isActive ? 'text-indigo-400 font-semibold' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              <Icon className="w-5 h-5" />
-              <span className="text-[10px] font-medium tracking-tight mt-1">{tab.label}</span>
+              <div className="relative">
+                <Icon className={`w-6 h-6 transition-transform duration-200 ${isActive ? 'scale-110' : ''}`} />
+                {tab.id === 'chats' && unreadChatCount > 0 && (
+                  <span className="absolute -top-1.5 -right-2 min-w-[18px] h-[18px] px-1 bg-rose-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center ring-2 ring-slate-900">
+                    {unreadChatCount > 9 ? '9+' : unreadChatCount}
+                  </span>
+                )}
+                {tab.id === 'rooms' && (
+                  <span className="absolute -top-1 -right-1.5 w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
+                )}
+              </div>
+              <span className={`text-[11px] mt-1 tracking-tight ${isActive ? 'text-indigo-400 font-medium' : 'text-slate-400'}`}>
+                {tab.label}
+              </span>
+              {isActive && (
+                <span className="absolute bottom-1 w-1.5 h-1.5 bg-indigo-500 rounded-full" />
+              )}
             </button>
           );
         })}

@@ -1,14 +1,14 @@
 {
   "id": "/",
-  "name": "FRUIT MANIA ULTRA",
-  "short_name": "Fruit Mania",
-  "description": "Premium 5x3 Fruit Slot-Style Arcade Game with 9 Paylines, 3D Symbols, Scatter Gem Bonus Round, and Virtual Points.",
+  "name": "ChatNest - Friends Chat & Voice Social Demo",
+  "short_name": "ChatNest",
+  "description": "Simulated mobile friends-chat social app with live voice rooms, instant messaging, and simulated calls.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#080114",
-  "theme_color": "#080114",
+  "background_color": "#0f172a",
+  "theme_color": "#6366f1",
   "icons": [
     {
       "src": "/icon.svg",

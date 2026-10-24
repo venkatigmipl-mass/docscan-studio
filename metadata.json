@@ -1,8 +1,6 @@
 {
-  "name": "DocScan Studio - Mobile Document Scanner & PDF Creator",
-  "description": "Mobile-first offline document scanner and PDF creator. Capture receipts, notes, and documents with auto-crop perspective correction, filters, multi-page scanning, QR tools, and PDF export.",
-  "requestFramePermissions": [
-    "camera"
-  ],
+  "name": "ChatNest - Friends Chat & Voice Social Demo",
+  "description": "A mobile-first simulated friends-chat social app demo featuring live voice rooms, voice/video calls, friendly auto-replies, emoji gifts, and safety controls.",
+  "requestFramePermissions": [],
   "majorCapabilities": []
 }

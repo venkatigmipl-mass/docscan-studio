@@ -1,76 +1,84 @@
 import React from 'react';
-import { Settings, Sun, Moon, ShieldCheck } from 'lucide-react';
-import { AppSettings } from '../types/scanner';
+import { UserCheck, Settings, Sparkles } from 'lucide-react';
+import { AppLanguage } from '../types/chatnest';
+import { getT } from '../services/i18n';
 
 interface HeaderProps {
-  settings: AppSettings;
-  onToggleTheme: () => void;
+  coins: number;
+  pendingRequestsCount: number;
+  language: AppLanguage;
+  onOpenRequests: () => void;
   onOpenSettings: () => void;
-  title?: string;
-  showBack?: boolean;
-  onBack?: () => void;
+  onOpenDailyBonus: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
-  settings,
-  onToggleTheme,
+  coins,
+  pendingRequestsCount,
+  language,
+  onOpenRequests,
   onOpenSettings,
-  title = 'DocScan Studio',
-  showBack = false,
-  onBack,
+  onOpenDailyBonus,
 }) => {
+  const t = getT(language);
+
   return (
-    <header className="sticky top-0 z-30 w-full bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800/80 transition-colors pt-safe">
-      <div className="flex items-center justify-between h-14 px-4 max-w-md mx-auto">
-        {/* Left Slot: Back or Logo */}
-        <div className="flex items-center gap-2 overflow-hidden">
-          {showBack && onBack ? (
-            <button
-              onClick={onBack}
-              aria-label="Go Back"
-              className="min-h-[44px] min-w-[44px] -ml-2 flex items-center justify-center text-slate-700 dark:text-slate-200 hover:text-indigo-600 rounded-xl active:scale-95 transition-transform"
-            >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
-              </svg>
-            </button>
-          ) : (
-            <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white shrink-0 shadow-sm shadow-indigo-600/30">
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
-                <path d="M4 8V4h4" />
-                <path d="M20 8V4h-4" />
-                <path d="M4 16v4h4" />
-                <path d="M20 16v4h-4" />
-                <rect x="7" y="7" width="10" height="10" rx="1.5" />
-              </svg>
-            </div>
-          )}
-          <div className="flex flex-col truncate">
-            <span className="text-sm font-bold tracking-tight text-slate-900 dark:text-white truncate">
-              {title}
-            </span>
-            {!showBack && (
-              <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
-                <ShieldCheck className="w-3 h-3" />
-                100% Offline · Private
+    <header className="sticky top-0 z-30 bg-slate-900/90 dark:bg-slate-950/90 backdrop-blur-md border-b border-slate-800/80 pt-safe px-4 py-2.5 shadow-sm">
+      <div className="max-w-md mx-auto flex items-center justify-between">
+        {/* Logo and Demo Mode Badge */}
+        <div className="flex items-center gap-2.5">
+          <div className="w-9 h-9 rounded-2xl bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center shadow-md shadow-indigo-500/20 text-lg">
+            🐣
+          </div>
+          <div>
+            <div className="flex items-center gap-1.5">
+              <span className="font-extrabold text-lg tracking-tight bg-gradient-to-r from-white via-slate-100 to-indigo-200 bg-clip-text text-transparent">
+                ChatNest
               </span>
-            )}
+              <span className="px-1.5 py-0.5 text-[9px] font-bold tracking-wider uppercase bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-md">
+                {t('demo_mode')}
+              </span>
+            </div>
+            <p className="text-[10px] text-slate-400 -mt-0.5 line-clamp-1">
+              {t('tagline')}
+            </p>
           </div>
         </div>
 
-        {/* Right Slot: Theme & Settings Action */}
-        <div className="flex items-center gap-1 shrink-0">
+        {/* Right Actions: Coins Chip + Friends Requests + Settings */}
+        <div className="flex items-center gap-2">
+          {/* Coins pill */}
           <button
-            onClick={onToggleTheme}
-            aria-label="Toggle theme"
-            className="min-h-[44px] min-w-[44px] flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-xl active:scale-95 transition-transform"
+            onClick={onOpenDailyBonus}
+            className="min-h-[38px] px-2.5 py-1 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded-full flex items-center gap-1.5 text-xs font-bold text-amber-300 transition-all active:scale-95 shadow-sm"
+            title={t('get_coins')}
           >
-            {settings.theme === 'dark' ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-600" />}
+            <span className="text-sm">🪙</span>
+            <span>{coins.toLocaleString()}</span>
+            <Sparkles className="w-3 h-3 text-amber-400 animate-pulse" />
           </button>
+
+          {/* Friend requests button */}
+          <button
+            onClick={onOpenRequests}
+            className="relative min-w-[38px] min-h-[38px] w-9 h-9 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700/80 flex items-center justify-center text-slate-300 hover:text-white transition-colors active:scale-95"
+            aria-label="Friend Requests"
+            title="Friend Requests"
+          >
+            <UserCheck className="w-4 h-4" />
+            {pendingRequestsCount > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 bg-rose-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center ring-2 ring-slate-900 animate-bounce">
+                {pendingRequestsCount}
+              </span>
+            )}
+          </button>
+
+          {/* Settings button */}
           <button
             onClick={onOpenSettings}
-            aria-label="Open settings"
-            className="min-h-[44px] min-w-[44px] flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-xl active:scale-95 transition-transform"
+            className="min-w-[38px] min-h-[38px] w-9 h-9 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700/80 flex items-center justify-center text-slate-300 hover:text-white transition-colors active:scale-95"
+            aria-label={t('settings')}
+            title={t('settings')}
           >
             <Settings className="w-4 h-4" />
           </button>

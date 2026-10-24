@@ -38,7 +38,7 @@ export class ErrorBoundary extends Component<Props, State> {
           </div>
           <h1 className="text-xl font-bold tracking-tight mb-2">Something went wrong</h1>
           <p className="text-sm text-slate-400 max-w-xs mb-6">
-            An unexpected error occurred. Your documents are safely stored in your browser.
+            An unexpected error occurred. Your ChatNest demo data is safely preserved.
           </p>
           {this.state.error && (
             <div className="bg-slate-800/80 p-3 rounded-lg text-xs font-mono text-slate-300 max-w-xs break-words mb-6 text-left border border-slate-700">

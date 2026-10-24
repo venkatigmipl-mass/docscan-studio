@@ -1,712 +1,718 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { App as CapApp } from '@capacitor/app';
-import {
-  ActiveScreen,
-  AppSettings,
-  CornerPoints,
-  DocPage,
-  FilterType,
-  ScannedDocument,
-} from './types/scanner';
-import { dbService, DEFAULT_SETTINGS } from './services/db';
-import { compressImage } from './services/imageProcessing';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { App as CapacitorApp } from '@capacitor/app';
+import { 
+  MainTab, 
+  User, 
+  Room, 
+  ChatMessage, 
+  GiftItem, 
+  FriendRequest, 
+  CallSession, 
+  AppLanguage 
+} from './types/chatnest';
+import { StorageService } from './services/storage';
+import { INITIAL_ROOMS, INITIAL_USERS } from './services/mockData';
+import { ToastProvider, useToast } from './components/Toast';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { Header } from './components/Header';
 import { BottomNav } from './components/BottomNav';
-import { DocumentList } from './components/DocumentList';
-import { CameraScanner } from './components/CameraScanner';
-import { CropEditor } from './components/CropEditor';
-import { FilterEditor } from './components/FilterEditor';
-import { DocumentDetail } from './components/DocumentDetail';
-import { ExportModal } from './components/ExportModal';
-import { ImagesToPdfModal } from './components/ImagesToPdfModal';
-import { QrBarcodeView } from './components/QrBarcodeView';
+import { OnboardingModal } from './components/OnboardingModal';
+import { PhoneLoginModal } from './components/PhoneLoginModal';
+import { HomeView } from './components/HomeView';
+import { RoomsView } from './components/RoomsView';
+import { RoomDetailScreen } from './components/RoomDetailScreen';
+import { ChatsView } from './components/ChatsView';
+import { ChatConversationScreen } from './components/ChatConversationScreen';
+import { ProfileView } from './components/ProfileView';
+import { CallScreen } from './components/CallScreen';
+import { GiftPickerModal } from './components/GiftPickerModal';
+import { FriendsModal } from './components/FriendsModal';
 import { SettingsModal } from './components/SettingsModal';
-import { ErrorBoundary } from './components/ErrorBoundary';
-import { ToastProvider, useToast } from './components/Toast';
+import { UserProfileModal } from './components/UserProfileModal';
+import { ReportModal } from './components/ReportModal';
 
-const AppContent: React.FC = () => {
-  const toast = useToast();
+function ChatNestMain() {
+  const { showToast, success, info, error } = useToast();
 
-  // Settings & Theme
-  const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  // Persistent States
+  const [isOnboarded, setIsOnboarded] = useState<boolean>(() => StorageService.isOnboarded());
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => StorageService.isLoggedIn());
+  const [currentLanguage, setCurrentLanguage] = useState<AppLanguage>(() => StorageService.getLanguage());
+  const [currentTheme, setCurrentTheme] = useState<'dark' | 'light'>(() => StorageService.getTheme());
+  const [isSoundEnabled, setIsSoundEnabled] = useState<boolean>(() => StorageService.getSoundEnabled());
+  const [isNotificationsEnabled, setIsNotificationsEnabled] = useState<boolean>(() => StorageService.getNotificationsEnabled());
 
-  // Navigation & Screens
-  const [activeScreen, setActiveScreen] = useState<ActiveScreen>('home');
-  const [documents, setDocuments] = useState<ScannedDocument[]>([]);
-  const [activeDocId, setActiveDocId] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<User>(() => StorageService.getUserProfile());
+  const [users, setUsers] = useState<User[]>(() => StorageService.getUsers());
+  const [blockedIds, setBlockedIds] = useState<string[]>(() => StorageService.getBlockedIds());
+  const [allChats, setAllChats] = useState<Record<string, ChatMessage[]>>(() => StorageService.getAllChats());
+  const [friendRequests, setFriendRequests] = useState<FriendRequest[]>(() => StorageService.getFriendRequests());
 
-  // Intermediate Scanning Pipeline State
-  const [pipelineTargetDocId, setPipelineTargetDocId] = useState<string | null>(null);
-  const [pipelineEditingPageIndex, setPipelineEditingPageIndex] = useState<number | null>(null);
+  // Navigation & Sub-views
+  const [currentTab, setCurrentTab] = useState<MainTab>('home');
+  const [activeRoom, setActiveRoom] = useState<Room | null>(null);
+  const [activeChatUser, setActiveChatUser] = useState<User | null>(null);
+  const [activeCall, setActiveCall] = useState<CallSession | null>(null);
 
-  // Crop step state
-  const [pendingOriginalUrl, setPendingOriginalUrl] = useState<string>('');
-  const [pendingCropPoints, setPendingCropPoints] = useState<CornerPoints | undefined>(undefined);
+  // Modals
+  const [activeProfileUser, setActiveProfileUser] = useState<User | null>(null);
+  const [showGiftPicker, setShowGiftPicker] = useState<boolean>(false);
+  const [showFriendsModal, setShowFriendsModal] = useState<boolean>(false);
+  const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
+  const [reportTarget, setReportTarget] = useState<{ user?: User; message?: ChatMessage } | null>(null);
 
-  // Filter step state
-  const [pendingCroppedUrl, setPendingCroppedUrl] = useState<string>('');
-  const [pendingFilter, setPendingFilter] = useState<FilterType>('original');
-  const [pendingBrightness, setPendingBrightness] = useState<number>(0);
-  const [pendingContrast, setPendingContrast] = useState<number>(0);
-  const [pendingRotation, setPendingRotation] = useState<number>(0);
+  const lastBackPressRef = useRef<number>(0);
 
-  // Export Modal state
-  const [exportDoc, setExportDoc] = useState<ScannedDocument | null>(null);
-
-  // Loading indicator for background operations
-  const [isAppLoading, setIsAppLoading] = useState(false);
-  const [loadingMessage, setLoadingMessage] = useState('');
-
-  // Hidden multi-file input for home screen import
-  const homeFileInputRef = useRef<HTMLInputElement>(null);
-
-  // Current active document
-  const activeDocument = documents.find((d) => d.id === activeDocId) || null;
-
-  // Refs for Android hardware Back Button listener
-  const exportDocRef = useRef(exportDoc);
-  exportDocRef.current = exportDoc;
-
-  const isSettingsOpenRef = useRef(isSettingsOpen);
-  isSettingsOpenRef.current = isSettingsOpen;
-
-  const activeScreenRef = useRef(activeScreen);
-  activeScreenRef.current = activeScreen;
-
-  const pipelineTargetDocIdRef = useRef(pipelineTargetDocId);
-  pipelineTargetDocIdRef.current = pipelineTargetDocId;
-
-  // Android Back Button Handler via @capacitor/app
+  // Initialize storage from idb on launch
   useEffect(() => {
-    let removeListener: (() => void) | null = null;
+    StorageService.initStorage().then(() => {
+      setIsOnboarded(StorageService.isOnboarded());
+      setIsLoggedIn(StorageService.isLoggedIn());
+      setCurrentLanguage(StorageService.getLanguage());
+      setCurrentTheme(StorageService.getTheme());
+      setIsSoundEnabled(StorageService.getSoundEnabled());
+      setIsNotificationsEnabled(StorageService.getNotificationsEnabled());
+      setCurrentUser(StorageService.getUserProfile());
+      setUsers(StorageService.getUsers());
+      setBlockedIds(StorageService.getBlockedIds());
+      setAllChats(StorageService.getAllChats());
+      setFriendRequests(StorageService.getFriendRequests());
+    }).catch((e) => console.warn('Storage init failed:', e));
+  }, []);
+
+  // Apply Theme class to document root
+  useEffect(() => {
+    if (currentTheme === 'dark') {
+      document.documentElement.classList.add('dark');
+      document.body.classList.add('dark', 'bg-slate-950');
+      document.body.classList.remove('bg-slate-100');
+    } else {
+      document.documentElement.classList.remove('dark');
+      document.body.classList.remove('dark', 'bg-slate-950');
+      document.body.classList.add('bg-slate-900');
+    }
+  }, [currentTheme]);
+
+  // Capacitor 6 Android Back Button Handler
+  useEffect(() => {
+    let listenerHandle: { remove: () => void } | null = null;
 
     const setupBackButton = async () => {
       try {
-        const handler = await CapApp.addListener('backButton', () => {
-          // Priority 1: Close open modals first
-          if (exportDocRef.current) {
-            setExportDoc(null);
+        const handle = await CapacitorApp.addListener('backButton', () => {
+          // Priority 1: Close topmost modals
+          if (reportTarget) {
+            setReportTarget(null);
             return;
           }
-          if (isSettingsOpenRef.current) {
-            setIsSettingsOpen(false);
+          if (showGiftPicker) {
+            setShowGiftPicker(false);
             return;
           }
-
-          // Priority 2: Navigate back one screen
-          const current = activeScreenRef.current;
-          if (current === 'filter') {
-            setActiveScreen('crop');
+          if (activeProfileUser) {
+            setActiveProfileUser(null);
             return;
           }
-          if (current === 'crop') {
-            if (pipelineTargetDocIdRef.current) {
-              setActiveScreen('document-detail');
-            } else {
-              setActiveScreen('camera');
-            }
+          if (showFriendsModal) {
+            setShowFriendsModal(false);
             return;
           }
-          if (current === 'camera') {
-            if (pipelineTargetDocIdRef.current) {
-              setActiveScreen('document-detail');
-            } else {
-              setActiveScreen('home');
-            }
-            return;
-          }
-          if (current === 'document-detail') {
-            setActiveDocId(null);
-            setActiveScreen('home');
-            return;
-          }
-          if (current === 'images-to-pdf' || current === 'qr-tools') {
-            setActiveScreen('home');
+          if (showSettingsModal) {
+            setShowSettingsModal(false);
             return;
           }
 
-          // Priority 3: On Docs home screen with no modals -> Exit app
-          if (current === 'home') {
-            CapApp.exitApp();
+          // Priority 2: Call in progress
+          if (activeCall) {
+            setActiveCall(null);
+            info('Call ended');
+            return;
+          }
+
+          // Priority 3: Active room
+          if (activeRoom) {
+            setActiveRoom(null);
+            info('Left room');
+            return;
+          }
+
+          // Priority 4: Active Chat Conversation
+          if (activeChatUser) {
+            setActiveChatUser(null);
+            return;
+          }
+
+          // Priority 5: Switch from other tabs to Home
+          if (currentTab !== 'home') {
+            setCurrentTab('home');
+            return;
+          }
+
+          // Priority 6: On Home - exit app on double tap
+          const now = Date.now();
+          if (now - lastBackPressRef.current < 2000) {
+            CapacitorApp.exitApp();
+          } else {
+            lastBackPressRef.current = now;
+            info('Press back again to exit');
           }
         });
-
-        removeListener = () => {
-          handler.remove();
-        };
-      } catch {
-        // Safe fallback in standard browser preview
+        listenerHandle = handle;
+      } catch (e) {
+        console.warn('Capacitor backButton listener not available on web:', e);
       }
     };
 
     setupBackButton();
 
     return () => {
-      if (removeListener) removeListener();
+      if (listenerHandle) {
+        listenerHandle.remove();
+      }
     };
+  }, [
+    reportTarget,
+    showGiftPicker,
+    activeProfileUser,
+    showFriendsModal,
+    showSettingsModal,
+    activeCall,
+    activeRoom,
+    activeChatUser,
+    currentTab,
+    info
+  ]);
+
+  // Calculate unread chat messages
+  const unreadCount = Object.values(allChats).reduce((acc, msgs) => {
+    return acc + msgs.filter((m) => !m.isUser && !m.isRead).length;
+  }, 0);
+
+  // Sync state to storage
+  const syncUsers = useCallback((updated: User[]) => {
+    setUsers(updated);
+    StorageService.saveUsers(updated);
   }, []);
 
-  // Load Settings and Documents on Mount using idb
-  useEffect(() => {
-    const initApp = async () => {
-      try {
-        setIsAppLoading(true);
-        setLoadingMessage('Loading saved documents...');
+  const syncUserProfile = useCallback((updated: Partial<User>) => {
+    setCurrentUser((prev) => {
+      const merged = { ...prev, ...updated };
+      StorageService.saveUserProfile(merged);
+      return merged;
+    });
+  }, []);
 
-        const loadedSettings = await dbService.getSettings();
-        setSettings(loadedSettings);
-        applyThemeClass(loadedSettings.theme);
+  // Onboarding & Login handlers
+  const handleOnboardingComplete = () => {
+    setIsOnboarded(true);
+    StorageService.setOnboarded(true);
+  };
 
-        const loadedDocs = await dbService.getAllDocuments();
-        setDocuments(loadedDocs);
-      } catch (err: unknown) {
-        console.warn('Initialization error:', err);
-        toast.error('Failed loading saved documents from storage.');
-      } finally {
-        setIsAppLoading(false);
+  const handleLoginSuccess = (phone: string) => {
+    setIsLoggedIn(true);
+    StorageService.setLoggedIn(true, phone);
+    success(`Welcome to ChatNest, ${currentUser.name}! 🐣`);
+  };
+
+  // Toggle Friend status
+  const handleToggleFriend = (user: User) => {
+    const updated = users.map((u) => {
+      if (u.id === user.id) {
+        if (u.isFriend) {
+          return { ...u, isFriend: false, hasOutgoingRequest: false };
+        } else if (u.hasOutgoingRequest) {
+          return { ...u, hasOutgoingRequest: false };
+        } else {
+          return { ...u, hasOutgoingRequest: true };
+        }
       }
+      return u;
+    });
+    syncUsers(updated);
+
+    if (user.isFriend) {
+      info(`Removed ${user.name} from friends`);
+    } else if (user.hasOutgoingRequest) {
+      info(`Cancelled friend request to ${user.name}`);
+    } else {
+      success(`Friend request sent to ${user.name}! ✉️`);
+    }
+  };
+
+  // Accept Friend Request
+  const handleAcceptRequest = (req: FriendRequest) => {
+    // Remove request
+    const newRequests = friendRequests.filter((r) => r.id !== req.id);
+    setFriendRequests(newRequests);
+    StorageService.saveFriendRequests(newRequests);
+
+    // Update user to friend
+    const updated = users.map((u) => {
+      if (u.id === req.user.id) {
+        return { ...u, isFriend: true, hasIncomingRequest: false };
+      }
+      return u;
+    });
+    syncUsers(updated);
+    success(`You and ${req.user.name} are now friends! 🤝`);
+  };
+
+  // Decline Friend Request
+  const handleDeclineRequest = (req: FriendRequest) => {
+    const newRequests = friendRequests.filter((r) => r.id !== req.id);
+    setFriendRequests(newRequests);
+    StorageService.saveFriendRequests(newRequests);
+    info(`Declined request from ${req.user.name}`);
+  };
+
+  // Remove Friend
+  const handleRemoveFriend = (user: User) => {
+    const updated = users.map((u) => {
+      if (u.id === user.id) {
+        return { ...u, isFriend: false };
+      }
+      return u;
+    });
+    syncUsers(updated);
+    info(`Removed ${user.name} from friends`);
+  };
+
+  // Call Handlers
+  const handleStartVoiceCall = (user: User) => {
+    setActiveCall({
+      user,
+      type: 'voice',
+      status: 'ringing',
+      durationSeconds: 0,
+      isMuted: false,
+      isSpeakerOn: true,
+      isVideoMuted: false
+    });
+  };
+
+  const handleStartVideoCall = (user: User) => {
+    setActiveCall({
+      user,
+      type: 'video',
+      status: 'ringing',
+      durationSeconds: 0,
+      isMuted: false,
+      isSpeakerOn: true,
+      isVideoMuted: false
+    });
+  };
+
+  const handleEndCall = (durationSeconds: number) => {
+    if (activeCall) {
+      const minutes = Math.floor(durationSeconds / 60);
+      const secs = durationSeconds % 60;
+      const formatted = `${minutes}m ${secs}s`;
+      info(`Call with ${activeCall.user.name} ended (${formatted})`);
+    }
+    setActiveCall(null);
+  };
+
+  // Chat message handlers
+  const handleOpenChat = (user: User) => {
+    // Mark messages as read
+    const userMsgs = allChats[user.id] || [];
+    if (userMsgs.some((m) => !m.isUser && !m.isRead)) {
+      const updatedMsgs = userMsgs.map((m) => ({ ...m, isRead: true }));
+      const newChats = { ...allChats, [user.id]: updatedMsgs };
+      setAllChats(newChats);
+      StorageService.saveAllChats(newChats);
+    }
+    setActiveChatUser(user);
+  };
+
+  const handleSendMessage = (text: string, gift?: GiftItem) => {
+    if (!activeChatUser) return;
+
+    const newMsg: ChatMessage = {
+      id: `msg_${Date.now()}`,
+      senderId: 'me',
+      receiverId: activeChatUser.id,
+      text,
+      timestamp: Date.now(),
+      isUser: true,
+      isRead: true,
+      gift: gift ? { id: gift.id, name: gift.name, emoji: gift.emoji, cost: gift.cost } : undefined
     };
-    initApp();
-  }, [toast]);
 
-  // Apply dark/light class to <html>
-  const applyThemeClass = (theme: 'dark' | 'light') => {
-    if (theme === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
+    StorageService.saveChatMessage(activeChatUser.id, newMsg);
+    setAllChats(StorageService.getAllChats());
   };
 
-  const handleToggleTheme = async () => {
-    const nextTheme = settings.theme === 'dark' ? 'light' : 'dark';
-    applyThemeClass(nextTheme);
-    try {
-      const updated = await dbService.saveSettings({ theme: nextTheme });
-      setSettings(updated);
-    } catch {
-      toast.error('Failed saving theme preference');
-    }
+  const handleReceiveAutoReply = (text: string) => {
+    if (!activeChatUser) return;
+
+    const replyMsg: ChatMessage = {
+      id: `reply_${Date.now()}`,
+      senderId: activeChatUser.id,
+      receiverId: 'me',
+      text,
+      timestamp: Date.now(),
+      isUser: false,
+      isRead: true
+    };
+
+    StorageService.saveChatMessage(activeChatUser.id, replyMsg);
+    setAllChats(StorageService.getAllChats());
   };
 
-  const handleUpdateSettings = async (partial: Partial<AppSettings>) => {
-    try {
-      if (partial.theme) {
-        applyThemeClass(partial.theme);
-      }
-      const updated = await dbService.saveSettings(partial);
-      setSettings(updated);
-      toast.success('Settings saved');
-    } catch {
-      toast.error('Failed saving settings');
-    }
-  };
-
-  // Generate default name "Scan_YYYY-MM-DD_HHmm"
-  const generateDefaultDocName = () => {
-    const now = new Date();
-    const pad = (n: number) => String(n).padStart(2, '0');
-    return `Scan_${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
-  };
-
-  // --- Scanning & Page Creation Flow ---
-
-  // Start Scan for a brand new document
-  const handleStartNewScan = () => {
-    setPipelineTargetDocId(null);
-    setPipelineEditingPageIndex(null);
-    setActiveScreen('camera');
-  };
-
-  // Add a page to an existing document via camera
-  const handleAddPageCamera = (docId: string) => {
-    setPipelineTargetDocId(docId);
-    setPipelineEditingPageIndex(null);
-    setActiveScreen('camera');
-  };
-
-  // Camera captured an image or single image picked
-  const handleCameraCapture = (dataUrl: string, _width: number, _height: number) => {
-    setPendingOriginalUrl(dataUrl);
-    setPendingCropPoints(undefined);
-    setActiveScreen('crop');
-  };
-
-  // Multiple images picked from gallery at once
-  const handleImportMultiple = async (
-    images: Array<{ dataUrl: string; width: number; height: number }>
-  ) => {
-    if (images.length === 0) return;
-
-    setIsAppLoading(true);
-    setLoadingMessage('Importing photos...');
-    try {
-      const newPages: DocPage[] = images.map((img) => ({
-        id: Math.random().toString(36).substring(2, 9),
-        originalDataUrl: img.dataUrl,
-        processedDataUrl: img.dataUrl,
-        width: img.width,
-        height: img.height,
-        filter: settings.defaultFilter || 'original',
-        brightness: 0,
-        contrast: 0,
-        rotation: 0,
-      }));
-
-      if (pipelineTargetDocId) {
-        // Append to existing document
-        const targetDoc = documents.find((d) => d.id === pipelineTargetDocId);
-        if (targetDoc) {
-          const updatedPages = [...targetDoc.pages, ...newPages];
-          const updatedDoc: ScannedDocument = {
-            ...targetDoc,
-            pages: updatedPages,
-            pageCount: updatedPages.length,
-            updatedAt: Date.now(),
-          };
-
-          await dbService.saveDocument(updatedDoc);
-          setDocuments((prev) => [updatedDoc, ...prev.filter((d) => d.id !== updatedDoc.id)]);
-          setActiveDocId(updatedDoc.id);
-          setActiveScreen('document-detail');
-          toast.success(`Added ${newPages.length} pages to ${updatedDoc.name}`);
-          return;
-        }
-      }
-
-      // Create new document with all imported pages
-      const newDoc: ScannedDocument = {
-        id: Math.random().toString(36).substring(2, 9),
-        name: generateDefaultDocName(),
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        pageCount: newPages.length,
-        thumbnail: '',
-        pages: newPages,
-      };
-
-      await dbService.saveDocument(newDoc);
-      setDocuments((prev) => [newDoc, ...prev]);
-      setActiveDocId(newDoc.id);
-      setActiveScreen('document-detail');
-      toast.success(`Created document with ${newPages.length} pages`);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Error importing pages';
-      toast.error(msg);
-      setActiveScreen('home');
-    } finally {
-      setIsAppLoading(false);
-    }
-  };
-
-  // Crop step completed -> Move to Filter step
-  const handleApplyCrop = (
-    croppedDataUrl: string,
-    _width: number,
-    _height: number,
-    corners: CornerPoints
-  ) => {
-    setPendingCroppedUrl(croppedDataUrl);
-    setPendingCropPoints(corners);
-
-    // If editing existing page, preserve previous filter settings
-    if (pipelineTargetDocId && pipelineEditingPageIndex !== null) {
-      const doc = documents.find((d) => d.id === pipelineTargetDocId);
-      const page = doc?.pages[pipelineEditingPageIndex];
-      if (page) {
-        setPendingFilter(page.filter);
-        setPendingBrightness(page.brightness);
-        setPendingContrast(page.contrast);
-        setPendingRotation(page.rotation);
-      }
-    } else {
-      setPendingFilter(settings.defaultFilter || 'original');
-      setPendingBrightness(0);
-      setPendingContrast(0);
-      setPendingRotation(0);
+  const handleSendGift = (gift: GiftItem) => {
+    if (!activeChatUser) return;
+    const currentCoins = currentUser.coins || 0;
+    if (currentCoins < gift.cost) {
+      error('Not enough coins to send this gift');
+      return;
     }
 
-    setActiveScreen('filter');
+    // Deduct coins
+    const newCoins = StorageService.updateCoins(-gift.cost);
+    setCurrentUser((prev) => ({ ...prev, coins: newCoins }));
+
+    // Send gift message
+    handleSendMessage(`Sent a ${gift.name} ${gift.emoji}!`, gift);
+    setShowGiftPicker(false);
+    success(`Sent ${gift.name} to ${activeChatUser.name}! 🎁`);
   };
 
-  // Filter step completed -> Save Page into Document in IndexedDB
-  const handleSavePage = async (
-    processedDataUrl: string,
-    filter: FilterType,
-    brightness: number,
-    contrast: number,
-    rotation: number,
-    width: number,
-    height: number
-  ) => {
-    setIsAppLoading(true);
-    setLoadingMessage('Saving page...');
-    try {
-      const pageData: DocPage = {
-        id: Math.random().toString(36).substring(2, 9),
-        originalDataUrl: pendingOriginalUrl,
-        processedDataUrl,
-        width,
-        height,
-        filter,
-        brightness,
-        contrast,
-        rotation,
-        cropPoints: pendingCropPoints,
-      };
-
-      if (pipelineTargetDocId) {
-        // Updating or adding page to existing document
-        const target = documents.find((d) => d.id === pipelineTargetDocId);
-        if (target) {
-          let updatedPages = [...target.pages];
-          if (pipelineEditingPageIndex !== null && pipelineEditingPageIndex >= 0) {
-            updatedPages[pipelineEditingPageIndex] = {
-              ...pageData,
-              id: target.pages[pipelineEditingPageIndex].id,
-            };
-          } else {
-            updatedPages.push(pageData);
-          }
-
-          const updatedDoc: ScannedDocument = {
-            ...target,
-            pages: updatedPages,
-            pageCount: updatedPages.length,
-            thumbnail: target.thumbnail || '',
-            updatedAt: Date.now(),
-          };
-
-          await dbService.saveDocument(updatedDoc);
-          setDocuments((prev) => [updatedDoc, ...prev.filter((d) => d.id !== updatedDoc.id)]);
-          setActiveDocId(updatedDoc.id);
-          setActiveScreen('document-detail');
-          toast.success(pipelineEditingPageIndex !== null ? 'Page updated' : 'Page added to document');
-          return;
-        }
-      }
-
-      // Creating a brand new document with this initial page
-      const newDoc: ScannedDocument = {
-        id: Math.random().toString(36).substring(2, 9),
-        name: generateDefaultDocName(),
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        pageCount: 1,
-        thumbnail: '',
-        pages: [pageData],
-      };
-
-      await dbService.saveDocument(newDoc);
-      setDocuments((prev) => [newDoc, ...prev]);
-      setActiveDocId(newDoc.id);
-      setActiveScreen('document-detail');
-      toast.success('Document saved to device');
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Error saving page to storage';
-      toast.error(msg);
-      setActiveScreen('home');
-    } finally {
-      setIsAppLoading(false);
-    }
+  const handleClaimDailyBonus = () => {
+    const newCoins = StorageService.claimDailyBonus();
+    setCurrentUser((prev) => ({ ...prev, coins: newCoins }));
+    success('Claimed +150 Free Nest Coins! 🪙✨');
   };
 
-  // Re-crop existing page
-  const handleEditPageCrop = (page: DocPage, pageIndex: number) => {
-    if (!activeDocId) return;
-    setPipelineTargetDocId(activeDocId);
-    setPipelineEditingPageIndex(pageIndex);
-    setPendingOriginalUrl(page.originalDataUrl);
-    setPendingCropPoints(page.cropPoints);
-    setActiveScreen('crop');
+  // Safety: Block & Report Handlers
+  const handleBlockUser = (user: User) => {
+    StorageService.blockUser(user.id);
+    const updatedBlocked = StorageService.getBlockedIds();
+    setBlockedIds(updatedBlocked);
+
+    // Hide user from active lists
+    const updatedUsers = users.map((u) => (u.id === user.id ? { ...u, isBlocked: true } : u));
+    syncUsers(updatedUsers);
+
+    // Close any open screens with this user
+    if (activeChatUser?.id === user.id) setActiveChatUser(null);
+    if (activeProfileUser?.id === user.id) setActiveProfileUser(null);
+    if (activeCall?.user.id === user.id) setActiveCall(null);
+
+    success(`Blocked ${user.name}. They will no longer appear in your feed.`);
   };
 
-  // Re-filter existing page
-  const handleEditPageFilter = (page: DocPage, pageIndex: number) => {
-    if (!activeDocId) return;
-    setPipelineTargetDocId(activeDocId);
-    setPipelineEditingPageIndex(pageIndex);
-    setPendingOriginalUrl(page.originalDataUrl);
-    setPendingCroppedUrl(page.processedDataUrl);
-    setPendingFilter(page.filter);
-    setPendingBrightness(page.brightness);
-    setPendingContrast(page.contrast);
-    setPendingRotation(page.rotation);
-    setActiveScreen('filter');
+  const handleUnblockUser = (userId: string) => {
+    StorageService.unblockUser(userId);
+    setBlockedIds(StorageService.getBlockedIds());
+    const updatedUsers = users.map((u) => (u.id === userId ? { ...u, isBlocked: false } : u));
+    syncUsers(updatedUsers);
+    success('User unblocked');
   };
 
-  // Document Operations
-  const handleOpenDocument = (doc: ScannedDocument) => {
-    setActiveDocId(doc.id);
-    setActiveScreen('document-detail');
+  const handleSubmitReport = (reason: string, details: string) => {
+    const targetName = reportTarget?.user?.name || (reportTarget?.message ? 'the message' : 'content');
+    setReportTarget(null);
+    success(`Report submitted for ${targetName}. Thank you for keeping ChatNest safe! 🛡️`);
   };
 
-  const handleUpdateDocument = async (updated: ScannedDocument) => {
-    try {
-      await dbService.saveDocument(updated);
-      setDocuments((prev) => [updated, ...prev.filter((d) => d.id !== updated.id)]);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to update document in storage';
-      toast.error(msg);
-    }
+  const handleClearChat = () => {
+    if (!activeChatUser) return;
+    const all = { ...allChats };
+    delete all[activeChatUser.id];
+    setAllChats(all);
+    StorageService.saveAllChats(all);
+    info('Conversation cleared');
   };
 
-  const handleDeleteDocument = async (id: string) => {
-    try {
-      await dbService.deleteDocument(id);
-      setDocuments((prev) => prev.filter((d) => d.id !== id));
-      if (activeDocId === id) {
-        setActiveDocId(null);
-        setActiveScreen('home');
-      }
-      toast.success('Document deleted');
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to delete document';
-      toast.error(msg);
-    }
+  // Settings Handlers
+  const handleResetDemoData = () => {
+    StorageService.resetAllDemoData();
+    setCurrentUser(StorageService.getUserProfile());
+    setUsers(StorageService.getUsers());
+    setAllChats(StorageService.getAllChats());
+    setFriendRequests(StorageService.getFriendRequests());
+    setBlockedIds([]);
+    setShowSettingsModal(false);
+    success('Demo data restored to initial state! 🔄');
   };
 
-  const handleRenameDocument = async (id: string, newName: string) => {
-    try {
-      const doc = documents.find((d) => d.id === id);
-      if (!doc) return;
-      const updated = { ...doc, name: newName, updatedAt: Date.now() };
-      await dbService.saveDocument(updated);
-      setDocuments((prev) => prev.map((d) => (d.id === id ? updated : d)));
-      toast.success('Document renamed');
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to rename document';
-      toast.error(msg);
-    }
+  const handleLogout = () => {
+    StorageService.logout();
+    setIsLoggedIn(false);
+    setShowSettingsModal(false);
+    info('Logged out of demo session');
   };
 
-  const handleClearAllData = async () => {
-    try {
-      await dbService.clearAllData();
-      setDocuments([]);
-      setActiveDocId(null);
-      setActiveScreen('home');
-      toast.success('All documents erased');
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to clear stored data';
-      toast.error(msg);
-    }
-  };
-
-  // Direct gallery file select from Home
-  const handleHomeGalleryInput = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-
-    setIsAppLoading(true);
-    setLoadingMessage('Processing images...');
-    try {
-      const processed: Array<{ dataUrl: string; width: number; height: number }> = [];
-      for (let i = 0; i < files.length; i++) {
-        const res = await compressImage(files[i], 1600);
-        processed.push(res);
-      }
-
-      if (processed.length === 1) {
-        handleCameraCapture(processed[0].dataUrl, processed[0].width, processed[0].height);
-      } else {
-        await handleImportMultiple(processed);
-      }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Error reading image file';
-      toast.error(msg);
-    } finally {
-      setIsAppLoading(false);
-      if (homeFileInputRef.current) homeFileInputRef.current.value = '';
-    }
-  };
-
-  // Dynamic header titles
-  const getHeaderTitle = () => {
-    switch (activeScreen) {
-      case 'images-to-pdf':
-        return 'Images to PDF';
-      case 'qr-tools':
-        return 'QR & Barcode';
-      case 'document-detail':
-        return activeDocument?.name || 'Document';
-      default:
-        return 'DocScan Studio';
-    }
-  };
-
-  return (
-    <div className="min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors overscroll-none select-none">
-      {/* Hidden file input for direct photo pick from Home */}
-      <input
-        ref={homeFileInputRef}
-        type="file"
-        accept="image/*"
-        multiple
-        onChange={handleHomeGalleryInput}
-        className="hidden"
+  // Screen 1: Onboarding
+  if (!isOnboarded) {
+    return (
+      <OnboardingModal
+        currentLanguage={currentLanguage}
+        onSelectLanguage={(lang) => {
+          setCurrentLanguage(lang);
+          StorageService.setLanguage(lang);
+        }}
+        onComplete={handleOnboardingComplete}
       />
+    );
+  }
 
-      {/* Global Loading Overlay */}
-      {isAppLoading && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl p-5 shadow-2xl border border-slate-200 dark:border-slate-800 flex items-center gap-3">
-            <div className="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
-            <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
-              {loadingMessage || 'Processing...'}
-            </span>
-          </div>
-        </div>
-      )}
+  // Screen 2: Fake Login
+  if (!isLoggedIn) {
+    return (
+      <PhoneLoginModal
+        language={currentLanguage}
+        onLoginSuccess={handleLoginSuccess}
+        onBackToOnboarding={() => setIsOnboarded(false)}
+      />
+    );
+  }
 
-      {/* Primary Top Bar */}
-      {activeScreen !== 'camera' &&
-        activeScreen !== 'crop' &&
-        activeScreen !== 'filter' &&
-        activeScreen !== 'document-detail' && (
-          <Header
-            settings={settings}
-            onToggleTheme={handleToggleTheme}
-            onOpenSettings={() => setIsSettingsOpen(true)}
-            title={getHeaderTitle()}
-            showBack={activeScreen !== 'home'}
-            onBack={() => setActiveScreen('home')}
+  // Active Call Screen (Voice or Video)
+  if (activeCall) {
+    return (
+      <CallScreen
+        session={activeCall}
+        language={currentLanguage}
+        onEndCall={handleEndCall}
+      />
+    );
+  }
+
+  // Active Voice Room Screen
+  if (activeRoom) {
+    return (
+      <RoomDetailScreen
+        room={activeRoom}
+        language={currentLanguage}
+        onLeaveRoom={() => setActiveRoom(null)}
+      />
+    );
+  }
+
+  // Active Chat Screen
+  if (activeChatUser) {
+    return (
+      <>
+        <ChatConversationScreen
+          peerUser={activeChatUser}
+          messages={allChats[activeChatUser.id] || []}
+          language={currentLanguage}
+          onBack={() => setActiveChatUser(null)}
+          onSendMessage={handleSendMessage}
+          onReceiveAutoReply={handleReceiveAutoReply}
+          onStartVoiceCall={handleStartVoiceCall}
+          onStartVideoCall={handleStartVideoCall}
+          onOpenGiftPicker={() => setShowGiftPicker(true)}
+          onOpenUserProfile={(u) => setActiveProfileUser(u)}
+          onBlockUser={handleBlockUser}
+          onReportUser={(u) => setReportTarget({ user: u })}
+          onReportMessage={(m) => setReportTarget({ message: m })}
+          onClearChat={handleClearChat}
+        />
+
+        {/* Gift Picker Modal */}
+        {showGiftPicker && (
+          <GiftPickerModal
+            userCoins={currentUser.coins || 0}
+            recipientName={activeChatUser.name}
+            recipientAvatar={activeChatUser.avatar}
+            language={currentLanguage}
+            onSelectGift={handleSendGift}
+            onClaimDailyBonus={handleClaimDailyBonus}
+            onClose={() => setShowGiftPicker(false)}
           />
         )}
 
-      {/* Screen Routing */}
-      {activeScreen === 'home' && (
-        <DocumentList
-          documents={documents}
-          onOpenDocument={handleOpenDocument}
-          onStartScan={handleStartNewScan}
-          onImportGallery={() => homeFileInputRef.current?.click()}
-          onDeleteDocument={handleDeleteDocument}
-          onRenameDocument={handleRenameDocument}
-          onExportDocument={(doc) => setExportDoc(doc)}
-        />
-      )}
+        {/* User Profile Modal */}
+        {activeProfileUser && (
+          <UserProfileModal
+            user={activeProfileUser}
+            language={currentLanguage}
+            onOpenChat={handleOpenChat}
+            onStartVoiceCall={handleStartVoiceCall}
+            onStartVideoCall={handleStartVideoCall}
+            onToggleFriend={handleToggleFriend}
+            onBlockUser={handleBlockUser}
+            onReportUser={(u) => setReportTarget({ user: u })}
+            onClose={() => setActiveProfileUser(null)}
+          />
+        )}
 
-      {activeScreen === 'camera' && (
-        <CameraScanner
-          onCaptureImage={handleCameraCapture}
-          onImportMultiple={handleImportMultiple}
-          onCancel={() => {
-            if (pipelineTargetDocId) {
-              setActiveScreen('document-detail');
-            } else {
-              setActiveScreen('home');
-            }
-          }}
-        />
-      )}
+        {/* Report Modal */}
+        {reportTarget && (
+          <ReportModal
+            targetUser={reportTarget.user}
+            messageText={reportTarget.message?.text}
+            language={currentLanguage}
+            onSubmitReport={handleSubmitReport}
+            onClose={() => setReportTarget(null)}
+          />
+        )}
+      </>
+    );
+  }
 
-      {activeScreen === 'crop' && (
-        <CropEditor
-          originalDataUrl={pendingOriginalUrl}
-          initialCorners={pendingCropPoints}
-          onApplyCrop={handleApplyCrop}
-          onCancel={() => {
-            if (pipelineTargetDocId) {
-              setActiveScreen('document-detail');
-            } else {
-              setActiveScreen('home');
-            }
-          }}
-        />
-      )}
+  const blockedUsersList = users.filter((u) => blockedIds.includes(u.id));
+  const friendsList = users.filter((u) => u.isFriend && !u.isBlocked);
 
-      {activeScreen === 'filter' && (
-        <FilterEditor
-          unfilteredDataUrl={pendingCroppedUrl}
-          initialFilter={pendingFilter}
-          initialBrightness={pendingBrightness}
-          initialContrast={pendingContrast}
-          initialRotation={pendingRotation}
-          onSavePage={handleSavePage}
-          onCancel={() => setActiveScreen('crop')}
-        />
-      )}
+  return (
+    <div className="min-h-screen bg-slate-950 text-white flex flex-col justify-between selection:bg-indigo-500 selection:text-white">
+      {/* Top Header */}
+      <Header
+        coins={currentUser.coins || 0}
+        pendingRequestsCount={friendRequests.length}
+        language={currentLanguage}
+        onOpenRequests={() => setShowFriendsModal(true)}
+        onOpenSettings={() => setShowSettingsModal(true)}
+        onOpenDailyBonus={handleClaimDailyBonus}
+      />
 
-      {activeScreen === 'document-detail' && activeDocument && (
-        <DocumentDetail
-          document={activeDocument}
-          onBack={() => {
-            setActiveDocId(null);
-            setActiveScreen('home');
-          }}
-          onUpdateDocument={handleUpdateDocument}
-          onDeleteDocument={handleDeleteDocument}
-          onAddPageCamera={() => handleAddPageCamera(activeDocument.id)}
-          onAddPageGallery={() => {
-            setPipelineTargetDocId(activeDocument.id);
-            setPipelineEditingPageIndex(null);
-            homeFileInputRef.current?.click();
-          }}
-          onEditPageCrop={handleEditPageCrop}
-          onEditPageFilter={handleEditPageFilter}
-          onOpenExportModal={() => setExportDoc(activeDocument)}
-        />
-      )}
+      {/* Main Tab Screen */}
+      <main className="flex-1 overflow-y-auto">
+        {currentTab === 'home' && (
+          <HomeView
+            users={users}
+            currentLanguage={currentLanguage}
+            onOpenChat={handleOpenChat}
+            onStartVoiceCall={handleStartVoiceCall}
+            onStartVideoCall={handleStartVideoCall}
+            onToggleFriend={handleToggleFriend}
+            onSelectUserDetail={(u) => setActiveProfileUser(u)}
+          />
+        )}
 
-      {activeScreen === 'images-to-pdf' && (
-        <ImagesToPdfModal
-          defaultPageSize={settings.defaultPdfSize}
-          onSaveAsDocument={async (newDoc) => {
-            await dbService.saveDocument(newDoc);
-            setDocuments((prev) => [newDoc, ...prev]);
-            setActiveDocId(newDoc.id);
-            setActiveScreen('document-detail');
-          }}
-          onClose={() => setActiveScreen('home')}
-        />
-      )}
+        {currentTab === 'rooms' && (
+          <RoomsView
+            rooms={INITIAL_ROOMS}
+            language={currentLanguage}
+            onSelectRoom={(r) => setActiveRoom(r)}
+          />
+        )}
 
-      {activeScreen === 'qr-tools' && <QrBarcodeView />}
+        {currentTab === 'chats' && (
+          <ChatsView
+            users={users}
+            allChats={allChats}
+            language={currentLanguage}
+            onOpenConversation={handleOpenChat}
+            onNewChat={() => setCurrentTab('home')}
+          />
+        )}
+
+        {currentTab === 'profile' && (
+          <ProfileView
+            user={currentUser}
+            friendsCount={friendsList.length}
+            giftsCount={3}
+            language={currentLanguage}
+            onUpdateProfile={syncUserProfile}
+            onClaimDailyBonus={handleClaimDailyBonus}
+            canClaimDaily={StorageService.canClaimDailyBonus()}
+            onOpenSettings={() => setShowSettingsModal(true)}
+          />
+        )}
+      </main>
 
       {/* Bottom Navigation */}
       <BottomNav
-        activeScreen={activeScreen}
-        onNavigate={(screen) => {
-          if (screen === 'camera') {
-            handleStartNewScan();
-          } else {
-            setActiveScreen(screen);
-          }
-        }}
+        currentTab={currentTab}
+        onSelectTab={(tab) => setCurrentTab(tab)}
+        unreadChatCount={unreadCount}
+        language={currentLanguage}
       />
 
-      {/* Global Export PDF Modal */}
-      {exportDoc && (
-        <ExportModal
-          document={exportDoc}
-          defaultPageSize={settings.defaultPdfSize}
-          isOpen={Boolean(exportDoc)}
-          onClose={() => setExportDoc(null)}
+      {/* User Profile Modal */}
+      {activeProfileUser && (
+        <UserProfileModal
+          user={activeProfileUser}
+          language={currentLanguage}
+          onOpenChat={handleOpenChat}
+          onStartVoiceCall={handleStartVoiceCall}
+          onStartVideoCall={handleStartVideoCall}
+          onToggleFriend={handleToggleFriend}
+          onBlockUser={handleBlockUser}
+          onReportUser={(u) => setReportTarget({ user: u })}
+          onClose={() => setActiveProfileUser(null)}
         />
       )}
 
-      {/* Global Settings Modal */}
-      <SettingsModal
-        settings={settings}
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-        onUpdateSettings={handleUpdateSettings}
-        onClearAllData={handleClearAllData}
-      />
+      {/* Friends & Requests Modal */}
+      {showFriendsModal && (
+        <FriendsModal
+          friends={friendsList}
+          requests={friendRequests}
+          allUsers={users}
+          language={currentLanguage}
+          onAcceptRequest={handleAcceptRequest}
+          onDeclineRequest={handleDeclineRequest}
+          onRemoveFriend={handleRemoveFriend}
+          onOpenChat={handleOpenChat}
+          onStartVoiceCall={handleStartVoiceCall}
+          onStartVideoCall={handleStartVideoCall}
+          onSendFriendRequest={handleToggleFriend}
+          onClose={() => setShowFriendsModal(false)}
+        />
+      )}
+
+      {/* Settings Modal */}
+      {showSettingsModal && (
+        <SettingsModal
+          currentLanguage={currentLanguage}
+          currentTheme={currentTheme}
+          isSoundEnabled={isSoundEnabled}
+          isNotificationsEnabled={isNotificationsEnabled}
+          blockedUsers={blockedUsersList}
+          onChangeLanguage={(lang) => {
+            setCurrentLanguage(lang);
+            StorageService.setLanguage(lang);
+            success(`Language changed to ${lang.toUpperCase()}`);
+          }}
+          onToggleTheme={() => {
+            const nextTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            setCurrentTheme(nextTheme);
+            StorageService.setTheme(nextTheme);
+          }}
+          onToggleSound={() => {
+            const next = !isSoundEnabled;
+            setIsSoundEnabled(next);
+            StorageService.setSoundEnabled(next);
+            info(`Sound effects ${next ? 'enabled' : 'disabled'}`);
+          }}
+          onToggleNotifications={() => {
+            const next = !isNotificationsEnabled;
+            setIsNotificationsEnabled(next);
+            StorageService.setNotificationsEnabled(next);
+            info(`Notifications ${next ? 'enabled' : 'disabled'}`);
+          }}
+          onUnblockUser={handleUnblockUser}
+          onResetDemoData={handleResetDemoData}
+          onLogout={handleLogout}
+          onClose={() => setShowSettingsModal(false)}
+        />
+      )}
+
+      {/* Safety Report Modal */}
+      {reportTarget && (
+        <ReportModal
+          targetUser={reportTarget.user}
+          messageText={reportTarget.message?.text}
+          language={currentLanguage}
+          onSubmitReport={handleSubmitReport}
+          onClose={() => setReportTarget(null)}
+        />
+      )}
     </div>
   );
-};
+}
 
-export const App: React.FC = () => {
+export default function App() {
   return (
     <ErrorBoundary>
       <ToastProvider>
-        <AppContent />
+        <ChatNestMain />
       </ToastProvider>
     </ErrorBoundary>
   );
-};
-
-export default App;
+}
