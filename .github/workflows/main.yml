@@ -33,7 +33,6 @@ jobs:
           echo '{"appId":"com.docscan.studio","appName":"DocScan Studio","webDir":"dist"}' > capacitor.config.json
           npx cap add android
 
-      - name: Add camera permission
+            - name: Add camera permission
         run: |
-          F=android/app/src/main/AndroidManifest.xml
-          grep -q "android.permission.CAMERA" $F || sed -i 's|<application|<uses-permission android:name="android.permission.CAMERA" />\n    <uses-feature android:name="android.hardware.camera" android:r
+          sed -i 's#<application#<uses-permission android:name="android.permission.CAMERA" /><application#' android/app/src/main/AndroidManifest.xml
