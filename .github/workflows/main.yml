@@ -19,9 +19,10 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - name: Install and build web app
+      -       - name: Install and build web app
         run: |
-          npm install
+          rm -rf node_modules package-lock.json
+          npm install --legacy-peer-deps --no-audit --no-fund
           npm run build
 
       - name: Add Capacitor
