@@ -21,10 +21,11 @@ jobs:
           rm -rf node_modules package-lock.json
           npm install --legacy-peer-deps --no-audit --no-fund
           npm run build
-      - name: Add Capacitor
+      -       - name: Add Capacitor
         run: |
-          npm install @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6 --legacy-peer-deps
-          [ -f capacitor.config.json ] || npx cap init DocScanStudio com.docscan.studio --web-dir=dist
+          npm install @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6 --legacy-peer-deps --no-audit --no-fund
+          rm -f capacitor.config.ts
+          echo '{"appId":"com.docscan.studio","appName":"DocScan Studio","webDir":"dist"}' > capacitor.config.json
           [ -d android ] || npx cap add android
       - name: Add camera permission
         run: |
